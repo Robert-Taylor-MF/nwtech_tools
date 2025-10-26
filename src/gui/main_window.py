@@ -371,22 +371,22 @@ class TechAssistApp(ctk.CTk):
         """Instala um perfil completo com progresso"""
         packages = self.winget_manager.installation_profiles.get(profile_name, [])
         total_packages = len(packages)
-        
+
         if total_packages == 0:
             self.log_message(f"❌ Perfil {profile_name} não encontrado")
             return
-        
+
         # Atualiza interface se existir
         if hasattr(self, 'current_install_label'):
             self.current_install_label.configure(text=f"Instalando perfil: {profile_name}")
             self.install_progress.set(0)
             self.progress_label.configure(text=f"0/{total_packages} pacotes instalados")
-        
+
         self.log_message(f"🔄 Instalando perfil: {profile_name} ({total_packages} pacotes)")
-        
+
         def install_thread():
             installed = 0
-            
+
             for i, package_id in enumerate(packages, 1):
                 # Atualiza progresso se existir
                 if hasattr(self, 'install_progress'):
@@ -394,19 +394,19 @@ class TechAssistApp(ctk.CTk):
                     self.after(0, lambda pv=progress_value: self.install_progress.set(pv))
                     self.after(0, lambda i=i, t=total_packages: 
                               self.progress_label.configure(text=f"{i}/{t} pacotes"))
-                
+
                 def progress(pid, status):
                     self.after(0, lambda p=pid, s=status: 
                               self.log_message(f"  → {p}: {s}"))
-                
+
                 success, message = self.winget_manager.install_package(
                     package_id, 
                     progress_callback=progress
                 )
-                
+
                 if success:
                     installed += 1
-            
+
             # Finalização
             if hasattr(self, 'current_install_label'):
                 self.after(0, lambda: self.current_install_label.configure(
@@ -414,18 +414,18 @@ class TechAssistApp(ctk.CTk):
                 ))
                 self.after(0, lambda i=installed, t=total_packages: 
                           self.progress_label.configure(text=f"✅ {i}/{t} pacotes instalados com sucesso"))
-            
+
             self.after(0, lambda: self.log_message(
                 f"✅ Perfil {profile_name} concluído: {installed}/{total_packages} pacotes"
             ))
-            
+
             # Reset após 5 segundos (se existir)
             if hasattr(self, 'current_install_label'):
                 self.after(5000, lambda: self.current_install_label.configure(
                     text="Nenhuma instalação em andamento"
                 ))
                 self.after(5000, lambda: self.install_progress.set(0))
-        
+
         threading.Thread(target=install_thread, daemon=True).start()
         
     def install_single_package(self, package_id, package_name=None):
@@ -437,7 +437,7 @@ class TechAssistApp(ctk.CTk):
         # Verifica se os widgets de progresso existem
         if hasattr(self, 'current_install_label'):
             self.current_install_label.configure(text=f"Instalando: {package_name}")
-            self.install_progress.set(0)
+            self.install_progress.start()
             self.progress_label.configure(text="Iniciando instalação...")
 
         self.log_message(f"🔄 Instalando: {package_name}")
@@ -471,12 +471,14 @@ class TechAssistApp(ctk.CTk):
 
             if success:
                 if hasattr(self, 'current_install_label'):
+                    self.after(0, lambda: self.install_progress.stop())
                     self.after(0, lambda: self.current_install_label.configure(
                         text=f"✅ {package_name} instalado com sucesso!"
                     ))
                 self.after(0, lambda: self.log_message(f"✅ Instalado: {package_name}"))
             else:
                 if hasattr(self, 'current_install_label'):
+                    self.after(0, lambda: self.install_progress.stop())
                     self.after(0, lambda: self.current_install_label.configure(
                         text=f"❌ Falha ao instalar {package_name}"
                     ))
@@ -539,7 +541,7 @@ def create_winget_frame(self):
         width=600,
         height=25,
         corner_radius=10,
-        mode="determinate"
+        mode="indeterminate"
     )
     self.install_progress.pack(pady=10)
     self.install_progress.set(0)
