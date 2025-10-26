@@ -1,0 +1,21 @@
+[project]
+name = "NWTECH TOOLS"
+version = "1.0.0"
+description = "Ferramenta completa para assistência técnica de computadores"
+authors = [{name = "Robert Taylor", email = "robertylhon@gmail.com"}]
+requires-python = ">=3.10"
+dependencies = [
+    "customtkinter>=5.2.0",
+    "pillow>=10.0.0",
+    "psutil>=5.9.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "winshell>=0.6"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "pylint>=2.17.0"
+]
