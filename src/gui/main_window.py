@@ -366,36 +366,103 @@ class TechAssistApp(ctk.CTk):
         """Mostra erro da restauração"""
         self.log_message(f"❌ Erro: {error}")
         messagebox.showerror("Erro", str(error))
+
+    def install_profile(self, profile_name):
+        """Instala um perfil completo com progresso"""
+        packages = self.winget_manager.installation_profiles.get(profile_name, [])
+        total_packages = len(packages)
         
-        def install_profile(self, profile_name):
-            """Instala um perfil completo"""
-            self.log_message(f"🔄 Instalando perfil: {profile_name}")
-    
-            def install_thread():
-                def progress(package_id, status):
-                    self.after(0, lambda p=package_id, s=status: 
+        if total_packages == 0:
+            self.log_message(f"❌ Perfil {profile_name} não encontrado")
+            return
+        
+        # Atualiza interface se existir
+        if hasattr(self, 'current_install_label'):
+            self.current_install_label.configure(text=f"Instalando perfil: {profile_name}")
+            self.install_progress.set(0)
+            self.progress_label.configure(text=f"0/{total_packages} pacotes instalados")
+        
+        self.log_message(f"🔄 Instalando perfil: {profile_name} ({total_packages} pacotes)")
+        
+        def install_thread():
+            installed = 0
+            
+            for i, package_id in enumerate(packages, 1):
+                # Atualiza progresso se existir
+                if hasattr(self, 'install_progress'):
+                    progress_value = i / total_packages
+                    self.after(0, lambda pv=progress_value: self.install_progress.set(pv))
+                    self.after(0, lambda i=i, t=total_packages: 
+                              self.progress_label.configure(text=f"{i}/{t} pacotes"))
+                
+                def progress(pid, status):
+                    self.after(0, lambda p=pid, s=status: 
                               self.log_message(f"  → {p}: {s}"))
-    
-                results = self.winget_manager.install_profile(
-                    profile_name, 
+                
+                success, message = self.winget_manager.install_package(
+                    package_id, 
                     progress_callback=progress
                 )
-    
-                success_count = sum(1 for r in results if r["success"])
-                self.after(0, lambda: self.log_message(
-                    f"✅ Perfil instalado: {success_count}/{len(results)} pacotes"
+                
+                if success:
+                    installed += 1
+            
+            # Finalização
+            if hasattr(self, 'current_install_label'):
+                self.after(0, lambda: self.current_install_label.configure(
+                    text=f"✅ Perfil {profile_name} instalado!"
                 ))
-    
-            threading.Thread(target=install_thread, daemon=True).start()
-    
-    def install_single_package(self, package_id):
-        """Instala um único pacote"""
-        self.log_message(f"🔄 Instalando: {package_id}")
+                self.after(0, lambda i=installed, t=total_packages: 
+                          self.progress_label.configure(text=f"✅ {i}/{t} pacotes instalados com sucesso"))
+            
+            self.after(0, lambda: self.log_message(
+                f"✅ Perfil {profile_name} concluído: {installed}/{total_packages} pacotes"
+            ))
+            
+            # Reset após 5 segundos (se existir)
+            if hasattr(self, 'current_install_label'):
+                self.after(5000, lambda: self.current_install_label.configure(
+                    text="Nenhuma instalação em andamento"
+                ))
+                self.after(5000, lambda: self.install_progress.set(0))
+        
+        threading.Thread(target=install_thread, daemon=True).start()
+        
+    def install_single_package(self, package_id, package_name=None):
+        """Instala um único pacote com feedback visual"""
+        # Se não passar o nome, usa o ID
+        if package_name is None:
+            package_name = package_id
+
+        # Verifica se os widgets de progresso existem
+        if hasattr(self, 'current_install_label'):
+            self.current_install_label.configure(text=f"Instalando: {package_name}")
+            self.install_progress.set(0)
+            self.progress_label.configure(text="Iniciando instalação...")
+
+        self.log_message(f"🔄 Instalando: {package_name}")
 
         def install_thread():
+            # Atualiza barra de progresso se existir
+            if hasattr(self, 'install_progress'):
+                self.after(0, lambda: self.install_progress.set(0.3))
+                self.after(0, lambda: self.progress_label.configure(text="Baixando..."))
+
             def progress(pid, status):
-                # Usa self.after para atualizar na thread principal
-                self.after(0, lambda: self.log_message(f"  → {pid}: {status}"))
+                if "sucesso" in status.lower():
+                    if hasattr(self, 'install_progress'):
+                        self.after(0, lambda: self.install_progress.set(1.0))
+                        self.after(0, lambda: self.progress_label.configure(text="✅ Concluído!"))
+                elif "erro" in status.lower():
+                    if hasattr(self, 'install_progress'):
+                        self.after(0, lambda: self.install_progress.set(0))
+                        self.after(0, lambda: self.progress_label.configure(text="❌ Erro na instalação"))
+                else:
+                    if hasattr(self, 'install_progress'):
+                        self.after(0, lambda: self.install_progress.set(0.6))
+                        self.after(0, lambda: self.progress_label.configure(text="Instalando..."))
+
+                self.after(0, lambda p=pid, s=status: self.log_message(f"  → {p}: {s}"))
 
             success, message = self.winget_manager.install_package(
                 package_id, 
@@ -403,8 +470,204 @@ class TechAssistApp(ctk.CTk):
             )
 
             if success:
-                self.after(0, lambda: self.log_message(f"✅ Instalado: {package_id}"))
+                if hasattr(self, 'current_install_label'):
+                    self.after(0, lambda: self.current_install_label.configure(
+                        text=f"✅ {package_name} instalado com sucesso!"
+                    ))
+                self.after(0, lambda: self.log_message(f"✅ Instalado: {package_name}"))
             else:
+                if hasattr(self, 'current_install_label'):
+                    self.after(0, lambda: self.current_install_label.configure(
+                        text=f"❌ Falha ao instalar {package_name}"
+                    ))
                 self.after(0, lambda: self.log_message(f"❌ Erro: {message}"))
 
+            # Reset após 3 segundos (se existir)
+            if hasattr(self, 'current_install_label'):
+                self.after(3000, lambda: self.current_install_label.configure(
+                    text="Nenhuma instalação em andamento"
+                ))
+                self.after(3000, lambda: self.install_progress.set(0))
+
         threading.Thread(target=install_thread, daemon=True).start()
+            
+def create_winget_frame(self):
+    self.clear_main_frame()
+    
+    title = ctk.CTkLabel(
+        self.main_frame,
+        text="Gerenciador Winget - NWTECH TOOLS",
+        font=ctk.CTkFont(size=28, weight="bold")
+    )
+    title.pack(pady=20)
+    
+    # Verificar se Winget está disponível
+    if not self.winget_manager.check_winget_available():
+        error_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        error_frame.pack(pady=20)
+        
+        error_label = ctk.CTkLabel(
+            error_frame,
+            text="⚠️ Winget não está disponível no sistema",
+            text_color="red",
+            font=ctk.CTkFont(size=16)
+        )
+        error_label.pack(pady=10)
+        
+        help_label = ctk.CTkLabel(
+            error_frame,
+            text="Instale o Winget através da Microsoft Store (App Installer)",
+            font=ctk.CTkFont(size=12)
+        )
+        help_label.pack(pady=5)
+        return
+    
+    # Frame de status de instalação
+    self.install_status_frame = ctk.CTkFrame(self.main_frame)
+    self.install_status_frame.pack(fill="x", padx=20, pady=10)
+    
+    self.current_install_label = ctk.CTkLabel(
+        self.install_status_frame,
+        text="Nenhuma instalação em andamento",
+        font=ctk.CTkFont(size=14)
+    )
+    self.current_install_label.pack(pady=5)
+    
+    # Barra de progresso geral
+    self.install_progress = ctk.CTkProgressBar(
+        self.install_status_frame,
+        width=600,
+        height=25,
+        corner_radius=10,
+        mode="determinate"
+    )
+    self.install_progress.pack(pady=10)
+    self.install_progress.set(0)
+    
+    # Label de progresso (X/Y pacotes)
+    self.progress_label = ctk.CTkLabel(
+        self.install_status_frame,
+        text="0/0 pacotes instalados",
+        font=ctk.CTkFont(size=12)
+    )
+    self.progress_label.pack(pady=5)
+    
+    # Perfis de instalação
+    profiles_frame = ctk.CTkFrame(self.main_frame)
+    profiles_frame.pack(fill="x", padx=20, pady=10)
+    
+    ctk.CTkLabel(
+        profiles_frame,
+        text="⚡ Perfis de Instalação Rápida",
+        font=ctk.CTkFont(size=18, weight="bold")
+    ).pack(pady=10)
+    
+    profiles_desc = ctk.CTkLabel(
+        profiles_frame,
+        text="Instale conjuntos completos de programas com um clique",
+        font=ctk.CTkFont(size=12),
+        text_color="gray"
+    )
+    profiles_desc.pack(pady=5)
+    
+    # Grid de botões de perfil
+    profile_buttons_frame = ctk.CTkFrame(profiles_frame, fg_color="transparent")
+    profile_buttons_frame.pack(pady=10, padx=20)
+    
+    profiles_info = {
+        "Básico": ("🏠", "Navegador, compactador, mídia e PDF"),
+        "Escritório": ("💼", "Office, videoconferência e produtividade"),
+        "Gamer": ("🎮", "Discord, OBS, launchers e utilitários"),
+        "Desenvolvedor": ("👨‍💻", "IDEs, Git, ferramentas de desenvolvimento"),
+        "Designer": ("🎨", "Edição de imagem, vídeo e design gráfico"),
+        "Segurança": ("🛡️", "Antivírus, VPN e ferramentas de privacidade")
+    }
+    
+    row = 0
+    col = 0
+    for profile, (emoji, desc) in profiles_info.items():
+        profile_card = ctk.CTkFrame(profile_buttons_frame, width=280, height=120)
+        profile_card.grid(row=row, column=col, padx=10, pady=10)
+        
+        ctk.CTkLabel(
+            profile_card,
+            text=f"{emoji} {profile}",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(pady=10)
+        
+        ctk.CTkLabel(
+            profile_card,
+            text=desc,
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            wraplength=250
+        ).pack(pady=5)
+        
+        ctk.CTkButton(
+            profile_card,
+            text="Instalar Perfil",
+            command=lambda p=profile: self.install_profile(p),
+            width=200,
+            height=35,
+            fg_color="#2B5278",
+            hover_color="#1F3A57"
+        ).pack(pady=5)
+        
+        col += 1
+        if col > 2:
+            col = 0
+            row += 1
+    
+    # Catálogo de programas com abas
+    catalog_frame = ctk.CTkFrame(self.main_frame)
+    catalog_frame.pack(fill="both", expand=True, padx=20, pady=10)
+    
+    ctk.CTkLabel(
+        catalog_frame,
+        text="📦 Catálogo de Programas",
+        font=ctk.CTkFont(size=18, weight="bold")
+    ).pack(pady=10, anchor="w", padx=20)
+    
+    # Tabview para categorias
+    self.catalog_tabview = ctk.CTkTabview(catalog_frame, height=400)
+    self.catalog_tabview.pack(fill="both", expand=True, padx=10, pady=10)
+    
+    # Criar abas para cada categoria
+    for category, programs in self.winget_manager.software_catalog.items():
+        tab = self.catalog_tabview.add(category)
+        
+        # Scrollable frame para a categoria
+        scroll_frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        scroll_frame.pack(fill="both", expand=True)
+        
+        for program in programs:
+            prog_frame = ctk.CTkFrame(scroll_frame, height=50)
+            prog_frame.pack(fill="x", pady=3, padx=5)
+            
+            # Nome do programa
+            ctk.CTkLabel(
+                prog_frame,
+                text=program["name"],
+                font=ctk.CTkFont(size=13, weight="bold"),
+                anchor="w"
+            ).pack(side="left", padx=15)
+            
+            # ID do programa (pequeno)
+            ctk.CTkLabel(
+                prog_frame,
+                text=program["id"],
+                font=ctk.CTkFont(size=10),
+                text_color="gray",
+                anchor="w"
+            ).pack(side="left", padx=5)
+            
+            # Botão de instalação - AQUI ESTÁ A CORREÇÃO PRINCIPAL
+            install_btn = ctk.CTkButton(
+                prog_frame,
+                text="📥 Instalar",
+                command=lambda pid=program["id"], pname=program["name"]: 
+                    self.install_single_package(pid, pname),  # ← DOIS ARGUMENTOS
+                width=120,
+                height=35
+            )
+            install_btn.pack(side="right", padx=10)
