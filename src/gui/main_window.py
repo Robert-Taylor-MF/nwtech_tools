@@ -267,20 +267,31 @@ class TechAssistApp(ctk.CTk):
             self.restore_source_label.configure(text=f"Origem: {folder}")
     
     def log_message(self, message):
-        self.log_textbox.insert("end", f"{message}\n")
-        self.log_textbox.see("end")
+        """Adiciona mensagem ao log de forma thread-safe"""
+        def _insert():
+            try:
+                if self.log_textbox.winfo_exists():
+                    self.log_textbox.insert("end", f"{message}\n")
+                    self.log_textbox.see("end")
+            except:
+                pass
+            
+        # Usa after para executar na thread principal
+        self.after(0, _insert)
     
     def start_backup(self):
+        """Inicia o processo de backup"""
         if not hasattr(self, 'backup_destination'):
             messagebox.showerror("Erro", "Selecione um destino para o backup")
             return
-        
+
         def backup_thread():
-            self.log_message("🔄 Iniciando backup...")
-            
+            self.after(0, lambda: self.log_message("🔄 Iniciando backup..."))
+
             def progress(item, status):
-                self.log_message(f"  → {item}: {status}")
-            
+                self.after(0, lambda i=item, s=status: 
+                          self.log_message(f"  → {i}: {s}"))
+
             try:
                 include_browsers = self.include_browsers_var.get() == 1
                 backup_folder, log = self.backup_manager.create_backup(
@@ -288,84 +299,112 @@ class TechAssistApp(ctk.CTk):
                     include_browsers=include_browsers,
                     progress_callback=progress
                 )
-                
-                self.log_message(f"✅ Backup concluído: {backup_folder}")
-                self.log_message(f"📊 Total de arquivos: {len(log['files_backed_up'])}")
-                self.log_message(f"📦 Tamanho total: {log['total_size'] / (1024**3):.2f} GB")
-                
-                messagebox.showinfo("Sucesso", f"Backup criado com sucesso!\n{backup_folder}")
-                
+
+                self.after(0, lambda bf=backup_folder, l=log: self._show_backup_success(bf, l))
+
             except Exception as e:
-                self.log_message(f"❌ Erro no backup: {str(e)}")
-                messagebox.showerror("Erro", f"Falha no backup: {str(e)}")
-        
+                self.after(0, lambda e=e: self._show_backup_error(e))
+
         threading.Thread(target=backup_thread, daemon=True).start()
+        
+    def _show_backup_success(self, backup_folder, log):
+        """Mostra sucesso do backup (executado na thread principal)"""
+        self.log_message(f"✅ Backup concluído: {backup_folder}")
+        self.log_message(f"📊 Total de arquivos: {len(log['files_backed_up'])}")
+        self.log_message(f"📦 Tamanho total: {log['total_size'] / (1024**3):.2f} GB")
+        messagebox.showinfo("Sucesso", f"Backup criado com sucesso!\n{backup_folder}")
+
+    def _show_backup_error(self, error):
+        """Mostra erro do backup (executado na thread principal)"""
+        self.log_message(f"❌ Erro no backup: {str(error)}")
+        messagebox.showerror("Erro", f"Falha no backup: {str(error)}")
     
     def start_restore(self):
+        """Inicia restauração do backup"""
         if not hasattr(self, 'restore_source'):
             messagebox.showerror("Erro", "Selecione a pasta do backup")
             return
-        
+
         confirm = messagebox.askyesno(
             "Confirmar Restauração",
             "ATENÇÃO: Esta operação irá substituir os arquivos atuais.\nDeseja continuar?"
         )
-        
+
         if not confirm:
             return
-        
+
         def restore_thread():
-            self.log_message("🔄 Iniciando restauração...")
-            
+            self.after(0, lambda: self.log_message("🔄 Iniciando restauração..."))
+
             def progress(item, status):
-                self.log_message(f"  → {item}: {status}")
-            
+                self.after(0, lambda i=item, s=status: 
+                          self.log_message(f"  → {i}: {s}"))
+
             try:
                 success, result = self.backup_manager.restore_backup(
                     self.restore_source,
                     progress_callback=progress
                 )
-                
+
                 if success:
-                    self.log_message(f"✅ Restauração concluída!")
-                    self.log_message(f"📊 Itens restaurados: {len(result['restored'])}")
-                    messagebox.showinfo("Sucesso", "Arquivos restaurados com sucesso!")
+                    self.after(0, lambda r=result: self._show_restore_success(r))
                 else:
-                    self.log_message(f"❌ Erro: {result}")
-                    messagebox.showerror("Erro", result)
-                    
+                    self.after(0, lambda r=result: self._show_restore_error(r))
+
             except Exception as e:
-                self.log_message(f"❌ Erro na restauração: {str(e)}")
-                messagebox.showerror("Erro", f"Falha na restauração: {str(e)}")
-        
+                self.after(0, lambda e=e: self._show_restore_error(str(e)))
+
         threading.Thread(target=restore_thread, daemon=True).start()
     
-    def install_profile(self, profile_name):
-        self.log_message(f"🔄 Instalando perfil: {profile_name}")
+    def _show_restore_success(self, result):
+        """Mostra sucesso da restauração"""
+        self.log_message(f"✅ Restauração concluída!")
+        self.log_message(f"📊 Itens restaurados: {len(result['restored'])}")
+        messagebox.showinfo("Sucesso", "Arquivos restaurados com sucesso!")
+
+    def _show_restore_error(self, error):
+        """Mostra erro da restauração"""
+        self.log_message(f"❌ Erro: {error}")
+        messagebox.showerror("Erro", str(error))
         
-        def install_thread():
-            def progress(package_id, status):
-                self.log_message(f"  → {package_id}: {status}")
-            
-            results = self.winget_manager.install_profile(profile_name, progress_callback=progress)
-            
-            success_count = sum(1 for r in results if r["success"])
-            self.log_message(f"✅ Perfil instalado: {success_count}/{len(results)} pacotes")
-        
-        threading.Thread(target=install_thread, daemon=True).start()
+        def install_profile(self, profile_name):
+            """Instala um perfil completo"""
+            self.log_message(f"🔄 Instalando perfil: {profile_name}")
+    
+            def install_thread():
+                def progress(package_id, status):
+                    self.after(0, lambda p=package_id, s=status: 
+                              self.log_message(f"  → {p}: {s}"))
+    
+                results = self.winget_manager.install_profile(
+                    profile_name, 
+                    progress_callback=progress
+                )
+    
+                success_count = sum(1 for r in results if r["success"])
+                self.after(0, lambda: self.log_message(
+                    f"✅ Perfil instalado: {success_count}/{len(results)} pacotes"
+                ))
+    
+            threading.Thread(target=install_thread, daemon=True).start()
     
     def install_single_package(self, package_id):
+        """Instala um único pacote"""
         self.log_message(f"🔄 Instalando: {package_id}")
-        
+
         def install_thread():
             def progress(pid, status):
-                self.log_message(f"  → {pid}: {status}")
-            
-            success, message = self.winget_manager.install_package(package_id, progress_callback=progress)
-            
+                # Usa self.after para atualizar na thread principal
+                self.after(0, lambda: self.log_message(f"  → {pid}: {status}"))
+
+            success, message = self.winget_manager.install_package(
+                package_id, 
+                progress_callback=progress
+            )
+
             if success:
-                self.log_message(f"✅ Instalado: {package_id}")
+                self.after(0, lambda: self.log_message(f"✅ Instalado: {package_id}"))
             else:
-                self.log_message(f"❌ Erro: {message}")
-        
+                self.after(0, lambda: self.log_message(f"❌ Erro: {message}"))
+
         threading.Thread(target=install_thread, daemon=True).start()
